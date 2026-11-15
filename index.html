@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ESP32 - test 1 nut</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,system-ui,sans-serif;margin:0;padding:24px;
+       background:#111;color:#eee;display:flex;flex-direction:column;
+       min-height:100vh;align-items:center;gap:18px}
+  h1{font-size:18px;font-weight:600;margin:0;color:#888}
+  #nut{width:230px;height:230px;border-radius:50%;border:none;color:#fff;
+       font-size:26px;font-weight:700;background:#0a84ff;cursor:pointer;
+       box-shadow:0 8px 24px rgba(0,0,0,.5);transition:background .15s;
+       -webkit-tap-highlight-color:transparent}
+  #nut:active{transform:scale(.97)}
+  #nut.on{background:#ffd60a;color:#111}
+  #nut.off{background:#3a3a3c}
+  #nut:disabled{opacity:.5}
+  #trangThai{font-size:16px;font-weight:600;min-height:22px;text-align:center}
+  #duLieu{font-size:15px;color:#30d158;font-family:ui-monospace,monospace;min-height:20px}
+  #loi{font-size:13px;color:#ff6b6b;text-align:center;max-width:320px;
+       word-break:break-word;min-height:18px}
+  #reset{background:none;border:1px solid #444;color:#888;padding:8px 16px;
+         border-radius:8px;font-size:14px}
+</style>
+</head>
+<body>
+
+<h1>ESP32 BLE - test 1 nut</h1>
+<button id="nut">Ket noi</button>
+<div id="trangThai">Chua ket noi</div>
+<div id="duLieu"></div>
+<div id="loi"></div>
+<button id="reset" hidden>Ngat ket noi</button>
+
+<script>
+const UUID_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const UUID_RX      = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+const UUID_TX      = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
+const nut = document.getElementById('nut');
+const elTrangThai = document.getElementById('trangThai');
+const elDuLieu = document.getElementById('duLieu');
+const elLoi = document.getElementById('loi');
+const btnReset = document.getElementById('reset');
+
+let thietBi = null, charRX = null, charTX = null;
+let daKetNoi = false, ledBat = false;
+
+function baoLoi(e) { elLoi.textContent = e ? ('Loi: ' + e) : ''; }
+
+function veLaiNut() {
+  if (!daKetNoi) {
+    nut.textContent = 'Ket noi';
+    nut.className = '';
+    btnReset.hidden = true;
+    elDuLieu.textContent = '';
+  } else {
+    nut.textContent = ledBat ? 'TAT LED' : 'BAT LED';
+    nut.className = ledBat ? 'on' : 'off';
+    btnReset.hidden = false;
+  }
+}
+
+async function ketNoi() {
+  if (!navigator.bluetooth) {
+    baoLoi('trinh duyet nay khong co Web Bluetooth. Tren iPhone phai dung Bluefy.');
+    return;
+  }
+  baoLoi('');
+  nut.disabled = true;
+  elTrangThai.textContent = 'Dang tim thiet bi...';
+  try {
+    thietBi = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [UUID_SERVICE] }],
+      optionalServices: [UUID_SERVICE]
+    });
+
+    thietBi.addEventListener('gattserverdisconnected', () => {
+      daKetNoi = false; ledBat = false;
+      elTrangThai.textContent = 'Mat ket noi';
+      veLaiNut();
+    });
+
+    elTrangThai.textContent = 'Dang ket noi...';
+    const server = await thietBi.gatt.connect();
+    const service = await server.getPrimaryService(UUID_SERVICE);
+    charRX = await service.getCharacteristic(UUID_RX);
+    charTX = await service.getCharacteristic(UUID_TX);
+
+    await charTX.startNotifications();
+    charTX.addEventListener('characteristicvaluechanged', (e) => {
+      elDuLieu.textContent = new TextDecoder().decode(e.target.value);
+    });
+
+    daKetNoi = true; ledBat = false;
+    elTrangThai.textContent = 'Da ket noi: ' + (thietBi.name || '');
+  } catch (err) {
+    elTrangThai.textContent = 'Chua ket noi';
+    if (String(err).indexOf('cancel') < 0) baoLoi(err.message || err);
+  } finally {
+    nut.disabled = false;
+    veLaiNut();
+  }
+}
+
+async function doiLed() {
+  const lenh = ledBat ? '0' : '1';
+  nut.disabled = true;
+  try {
+    await charRX.writeValueWithResponse(new TextEncoder().encode(lenh));
+    ledBat = !ledBat;
+    baoLoi('');
+  } catch (err) {
+    baoLoi(err.message || err);
+  } finally {
+    nut.disabled = false;
+    veLaiNut();
+  }
+}
+
+nut.addEventListener('click', () => { daKetNoi ? doiLed() : ketNoi(); });
+btnReset.addEventListener('click', () => {
+  if (thietBi && thietBi.gatt.connected) thietBi.gatt.disconnect();
+});
+</script>
+</body>
+</html>
